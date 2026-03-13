@@ -1,0 +1,19 @@
+<section class="hero">
+  <h1>Report civic issues in your area</h1>
+  <p>
+    Upload a picture, choose the location and issue type, and your report will reach the concerned authority.
+    Your identity is hidden from authorities.
+  </p>
+
+  <% if (!user) { %>
+  <div class="cta-buttons">
+    <a class="btn-primary" href="/signup">Get started as citizen</a>
+    <a class="btn-secondary" href="/login">Login</a>
+  </div>
+  <% } else if (user.role === 'citizen') { %>
+  <a class="btn-primary" href="/citizen/dashboard">Go to your dashboard</a>
+  <% } else { %>
+  <a class="btn-primary" href="/authority/dashboard">Go to authority dashboard</a>
+  <% } %>
+</section>
+
