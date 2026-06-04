@@ -42,7 +42,7 @@ app.use('/uploads', express.static(uploadsDir));
 
 app.use(
   session({
-    secret: 'civic-sense-secret',
+    secret: 'civicpulse-secret',
     resave: false,
     saveUninitialized: false,
   })
@@ -56,7 +56,9 @@ function initDb() {
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL CHECK(role IN ('citizen', 'authority')),
-        authority_code TEXT
+        authority_code TEXT,
+        authority_state TEXT,
+        authority_district TEXT
       )`
     );
 
@@ -77,6 +79,10 @@ function initDb() {
         FOREIGN KEY (reporter_id) REFERENCES users(id)
       )`
     );
+
+    // For existing databases created before authority_state/authority_district were added
+    db.run('ALTER TABLE users ADD COLUMN authority_state TEXT', () => {});
+    db.run('ALTER TABLE users ADD COLUMN authority_district TEXT', () => {});
   });
 }
 
@@ -103,21 +109,39 @@ app.get('/signup', (req, res) => {
 });
 
 app.post('/signup', async (req, res) => {
-  const { email, password, role, authority_code } = req.body;
+  const {
+    email,
+    password,
+    role,
+    authority_code,
+    authority_state,
+    authority_district,
+  } = req.body;
   if (!email || !password || !role) {
     return res.render('signup', { error: 'Please fill all required fields.' });
   }
 
-  if (role === 'authority' && !authority_code) {
-    return res.render('signup', { error: 'Authority code is required for authority signup.' });
+  if (role === 'authority') {
+    if (!authority_code || !authority_state || !authority_district) {
+      return res.render('signup', {
+        error: 'Authority code, state and district are required for authority signup.',
+      });
+    }
   }
 
   try {
     const passwordHash = await bcrypt.hash(password, 10);
     const stmt = db.prepare(
-      'INSERT INTO users (email, password_hash, role, authority_code) VALUES (?, ?, ?, ?)'
+      'INSERT INTO users (email, password_hash, role, authority_code, authority_state, authority_district) VALUES (?, ?, ?, ?, ?, ?)'
     );
-    stmt.run(email, passwordHash, role, role === 'authority' ? authority_code : null, (err) => {
+    stmt.run(
+      email,
+      passwordHash,
+      role,
+      role === 'authority' ? authority_code : null,
+      role === 'authority' ? authority_state : null,
+      role === 'authority' ? authority_district : null,
+      (err) => {
       if (err) {
         let message = 'Could not create account.';
         if (err.message && err.message.includes('UNIQUE')) {
@@ -126,7 +150,8 @@ app.post('/signup', async (req, res) => {
         return res.render('signup', { error: message });
       }
       return res.redirect('/login');
-    });
+    }
+    );
   } catch (e) {
     return res.render('signup', { error: 'Unexpected error. Please try again.' });
   }
@@ -137,17 +162,19 @@ app.get('/login', (req, res) => {
 });
 
 app.post('/login', (req, res) => {
-  const { email, password, role, authority_code } = req.body;
+  const { email, password, role, authority_code, authority_state, authority_district } = req.body;
   if (!email || !password || !role) {
     return res.render('login', { error: 'Please fill all required fields.' });
   }
 
   const query =
     role === 'authority'
-      ? 'SELECT * FROM users WHERE email = ? AND role = ? AND authority_code = ?'
+      ? 'SELECT * FROM users WHERE email = ? AND role = ? AND authority_code = ? AND authority_state = ? AND authority_district = ?'
       : 'SELECT * FROM users WHERE email = ? AND role = ?';
   const params =
-    role === 'authority' ? [email, role, authority_code || null] : [email, role];
+    role === 'authority'
+      ? [email, role, authority_code || null, authority_state || null, authority_district || null]
+      : [email, role];
 
   db.get(query, params, async (err, user) => {
     if (err || !user) {
@@ -163,6 +190,8 @@ app.post('/login', (req, res) => {
       id: user.id,
       email: user.email,
       role: user.role,
+      authority_state: user.authority_state,
+      authority_district: user.authority_district,
     };
 
     if (user.role === 'authority') {
@@ -250,9 +279,10 @@ app.post(
 );
 
 app.get('/authority/dashboard', requireAuth('authority'), (req, res) => {
+  const { authority_state, authority_district } = req.session.user;
   db.all(
-    'SELECT id, state, district, post_office, pincode, civic_type, description, image_path, status, created_at, updated_at FROM reports ORDER BY created_at DESC',
-    [],
+    'SELECT id, state, district, post_office, pincode, civic_type, description, image_path, status, created_at, updated_at FROM reports WHERE state = ? AND district = ? ORDER BY created_at DESC',
+    [authority_state, authority_district],
     (err, rows) => {
       const reports = rows || [];
       res.render('authority_dashboard', { user: req.session.user, reports });
@@ -263,20 +293,21 @@ app.get('/authority/dashboard', requireAuth('authority'), (req, res) => {
 app.post('/authority/report/:id/status', requireAuth('authority'), (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
+  const { authority_state, authority_district } = req.session.user;
   const allowed = ['unsolved', 'pending', 'resolved'];
   if (!allowed.includes(status)) {
     return res.redirect('/authority/dashboard');
   }
 
   const stmt = db.prepare(
-    'UPDATE reports SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    'UPDATE reports SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND state = ? AND district = ?'
   );
-  stmt.run(status, id, () => {
+  stmt.run(status, id, authority_state, authority_district, () => {
     return res.redirect('/authority/dashboard');
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`Civic Sense MVP running on http://localhost:${PORT}`);
+  console.log(`CivicPulse running on http://localhost:${PORT}`);
 });
 

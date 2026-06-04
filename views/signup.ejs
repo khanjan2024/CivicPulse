@@ -23,6 +23,54 @@
       Authority unique ID
       <input type="text" name="authority_code" />
     </label>
+    <div id="authority-location-fields" style="display:none;">
+      <label>
+        Authority state
+        <select name="authority_state">
+          <option value="">Select state / UT</option>
+          <option value="Andhra Pradesh">Andhra Pradesh</option>
+          <option value="Arunachal Pradesh">Arunachal Pradesh</option>
+          <option value="Assam">Assam</option>
+          <option value="Bihar">Bihar</option>
+          <option value="Chhattisgarh">Chhattisgarh</option>
+          <option value="Goa">Goa</option>
+          <option value="Gujarat">Gujarat</option>
+          <option value="Haryana">Haryana</option>
+          <option value="Himachal Pradesh">Himachal Pradesh</option>
+          <option value="Jharkhand">Jharkhand</option>
+          <option value="Karnataka">Karnataka</option>
+          <option value="Kerala">Kerala</option>
+          <option value="Madhya Pradesh">Madhya Pradesh</option>
+          <option value="Maharashtra">Maharashtra</option>
+          <option value="Manipur">Manipur</option>
+          <option value="Meghalaya">Meghalaya</option>
+          <option value="Mizoram">Mizoram</option>
+          <option value="Nagaland">Nagaland</option>
+          <option value="Odisha">Odisha</option>
+          <option value="Punjab">Punjab</option>
+          <option value="Rajasthan">Rajasthan</option>
+          <option value="Sikkim">Sikkim</option>
+          <option value="Tamil Nadu">Tamil Nadu</option>
+          <option value="Telangana">Telangana</option>
+          <option value="Tripura">Tripura</option>
+          <option value="Uttar Pradesh">Uttar Pradesh</option>
+          <option value="Uttarakhand">Uttarakhand</option>
+          <option value="West Bengal">West Bengal</option>
+          <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
+          <option value="Chandigarh">Chandigarh</option>
+          <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
+          <option value="Delhi">Delhi</option>
+          <option value="Jammu and Kashmir">Jammu and Kashmir</option>
+          <option value="Ladakh">Ladakh</option>
+          <option value="Lakshadweep">Lakshadweep</option>
+          <option value="Puducherry">Puducherry</option>
+        </select>
+      </label>
+      <label>
+        Authority district
+        <input type="text" name="authority_district" placeholder="Enter district" />
+      </label>
+    </div>
     <button type="submit" class="btn-primary full-width">Sign up</button>
     <p class="muted">
       Already have an account?
@@ -34,13 +82,20 @@
 <script>
   const roleSelect = document.getElementById('role-select');
   const authorityField = document.getElementById('authority-code-field');
+  const authorityLocation = document.getElementById('authority-location-fields');
   function toggleAuthorityField() {
     if (roleSelect.value === 'authority') {
       authorityField.style.display = 'block';
       authorityField.querySelector('input').setAttribute('required', 'required');
+      authorityLocation.style.display = 'block';
+      authorityLocation.querySelector('select').setAttribute('required', 'required');
+      authorityLocation.querySelector('input').setAttribute('required', 'required');
     } else {
       authorityField.style.display = 'none';
       authorityField.querySelector('input').removeAttribute('required');
+      authorityLocation.style.display = 'none';
+      authorityLocation.querySelector('select').removeAttribute('required');
+      authorityLocation.querySelector('input').removeAttribute('required');
     }
   }
   roleSelect.addEventListener('change', toggleAuthorityField);

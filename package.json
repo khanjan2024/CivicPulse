@@ -1,5 +1,5 @@
 {
-  "name": "civic-sense-mvp",
+  "name": "civic-pulse",
   "version": "1.0.0",
   "description": "Basic MVP for reporting civic issues with anonymous reporting and authority dashboard",
   "main": "server.js",
