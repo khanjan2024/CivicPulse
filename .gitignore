@@ -1,0 +1,19 @@
+# Dependency directories
+node_modules/
+
+# Local database
+*.sqlite
+database.sqlite
+
+# File uploads
+uploads/
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.system_generated/
