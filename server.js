@@ -12,23 +12,57 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-if (!process.env.DATABASE_URL) {
-  console.error('\n======================================================');
-  console.error('ERROR: DATABASE_URL environment variable is not defined!');
-  console.error('Please create a .env file locally, or configure');
-  console.error('DATABASE_URL in your cloud deployment dashboard.');
-  console.error('See .env.example for details.');
-  console.error('======================================================\n');
-  process.exit(1);
-}
+const isPostgres = !!process.env.DATABASE_URL;
+let pool;
 
-// Setup PostgreSQL client pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')
-    ? { rejectUnauthorized: false }
-    : false
-});
+if (isPostgres) {
+  console.log('Using PostgreSQL database connection.');
+  const pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')
+      ? { rejectUnauthorized: false }
+      : false
+  });
+  
+  pool = {
+    query: (text, params, callback) => {
+      if (typeof params === 'function') {
+        callback = params;
+        params = [];
+      }
+      pgPool.query(text, params, callback);
+    }
+  };
+} else {
+  console.log('DATABASE_URL is not defined. Falling back to local SQLite database: database.sqlite');
+  const sqlite3 = require('sqlite3').verbose();
+  const sqliteDb = new sqlite3.Database(path.join(__dirname, 'database.sqlite'));
+  
+  pool = {
+    query: (text, params, callback) => {
+      if (typeof params === 'function') {
+        callback = params;
+        params = [];
+      }
+      const sqliteText = text.replace(/\$\d+/g, '?');
+      const isMutating = /^\s*(insert|update|delete|create|alter)/i.test(sqliteText);
+      
+      if (isMutating) {
+        sqliteDb.run(sqliteText, params, function (err) {
+          if (callback) {
+            callback(err, { rows: [], lastID: this ? this.lastID : null, changes: this ? this.changes : null });
+          }
+        });
+      } else {
+        sqliteDb.all(sqliteText, params, (err, rows) => {
+          if (callback) {
+            callback(err, { rows: rows || [] });
+          }
+        });
+      }
+    }
+  };
+}
 
 // Setup Supabase Client for Storage uploads
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -38,8 +72,14 @@ if (supabaseUrl && supabaseAnonKey) {
   supabase = createClient(supabaseUrl, supabaseAnonKey);
 }
 
-// Multer memory storage (upload directly to Supabase storage bucket)
+// Multer memory storage (upload directly to Supabase storage bucket or save locally from buffer)
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Ensure local uploads directory exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -48,6 +88,7 @@ app.set('layout', 'layout');
 app.use(expressLayouts);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(uploadsDir));
 
 app.use(
   session({
@@ -58,44 +99,85 @@ app.use(
 );
 
 function initDb() {
-  pool.query(
-    `CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('citizen', 'authority')),
-      authority_code TEXT,
-      authority_state TEXT,
-      authority_district TEXT
-    )`,
-    (err) => {
-      if (err) {
-        console.error('Error creating users table:', err);
-      } else {
-        pool.query(
-          `CREATE TABLE IF NOT EXISTS reports (
-            id SERIAL PRIMARY KEY,
-            reporter_id INTEGER REFERENCES users(id),
-            state TEXT NOT NULL,
-            district TEXT NOT NULL,
-            post_office TEXT NOT NULL,
-            pincode TEXT NOT NULL,
-            civic_type TEXT NOT NULL,
-            description TEXT,
-            image_path TEXT,
-            status TEXT NOT NULL CHECK(status IN ('unsolved', 'pending', 'resolved')) DEFAULT 'unsolved',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )`,
-          (err) => {
-            if (err) {
-              console.error('Error creating reports table:', err);
+  if (isPostgres) {
+    pool.query(
+      `CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('citizen', 'authority')),
+        authority_code TEXT,
+        authority_state TEXT,
+        authority_district TEXT
+      )`,
+      (err) => {
+        if (err) {
+          console.error('Error creating users table:', err);
+        } else {
+          pool.query(
+            `CREATE TABLE IF NOT EXISTS reports (
+              id SERIAL PRIMARY KEY,
+              reporter_id INTEGER REFERENCES users(id),
+              state TEXT NOT NULL,
+              district TEXT NOT NULL,
+              post_office TEXT NOT NULL,
+              pincode TEXT NOT NULL,
+              civic_type TEXT NOT NULL,
+              description TEXT,
+              image_path TEXT,
+              status TEXT NOT NULL CHECK(status IN ('unsolved', 'pending', 'resolved')) DEFAULT 'unsolved',
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            (err) => {
+              if (err) {
+                console.error('Error creating reports table:', err);
+              }
             }
-          }
-        );
+          );
+        }
       }
-    }
-  );
+    );
+  } else {
+    pool.query(
+      `CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('citizen', 'authority')),
+        authority_code TEXT,
+        authority_state TEXT,
+        authority_district TEXT
+      )`,
+      (err) => {
+        if (err) {
+          console.error('Error creating users table:', err);
+        } else {
+          pool.query(
+            `CREATE TABLE IF NOT EXISTS reports (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              reporter_id INTEGER REFERENCES users(id),
+              state TEXT NOT NULL,
+              district TEXT NOT NULL,
+              post_office TEXT NOT NULL,
+              pincode TEXT NOT NULL,
+              civic_type TEXT NOT NULL,
+              description TEXT,
+              image_path TEXT,
+              status TEXT NOT NULL CHECK(status IN ('unsolved', 'pending', 'resolved')) DEFAULT 'unsolved',
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`,
+            (err) => {
+              if (err) {
+                console.error('Error creating reports table:', err);
+              }
+            }
+          );
+        }
+      }
+    );
+  }
 }
 
 initDb();
@@ -286,7 +368,17 @@ app.post(
           console.error('Error uploading to Supabase Storage:', uploadErr);
         }
       } else {
-        console.warn('Supabase storage is not configured. Saving reports without image.');
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        const ext = path.extname(req.file.originalname) || '.jpg';
+        const filename = `${uniqueSuffix}${ext}`;
+        const localPath = path.join(uploadsDir, filename);
+
+        try {
+          fs.writeFileSync(localPath, req.file.buffer);
+          imagePath = `/uploads/${filename}`;
+        } catch (writeErr) {
+          console.error('Error saving uploaded file locally:', writeErr);
+        }
       }
     }
 
